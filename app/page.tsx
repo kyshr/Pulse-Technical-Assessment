@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import EntryGate from "./components/EntryGate";
 import WorldMap from "./components/WorldMap";
 import ConnectionPrompt from "./components/ConnectionPrompt";
+import Countdown from "./components/Countdown";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
 import { join, leave, poll, sendSignal } from "@/lib/api";
@@ -321,13 +322,10 @@ export default function Home() {
   }, [sessionId, phase]);
 
   async function handleReady(lat: number, lng: number) {
-    setMyLocation({ lat, lng });
     await join(sessionId, lat, lng);
+    // Set together so the gate closes as the globe starts flying to the user.
+    setMyLocation({ lat, lng });
     setPhase("live");
-  }
-
-  if (phase === "gate") {
-    return <EntryGate onReady={handleReady} />;
   }
 
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
@@ -339,20 +337,26 @@ export default function Home() {
         me={myLocation}
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
+        linkedPeerId={conn.kind === "idle" ? null : conn.peerId}
       />
 
-      {notice && (
-        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          {notice}
-        </div>
-      )}
+      {phase === "gate" && <EntryGate onReady={handleReady} />}
+
+      <div role="status" className="pointer-events-none absolute top-20 left-1/2 z-40 -translate-x-1/2">
+        {notice && (
+          <div className="glass animate-slide-down rounded-full px-4 py-2 text-sm whitespace-nowrap text-zinc-100">
+            {notice}
+          </div>
+        )}
+      </div>
 
       {conn.kind === "requesting" && (
-        <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          <span>Requesting connection…</span>
+        <div className="glass animate-slide-down absolute top-[max(1rem,env(safe-area-inset-top))] left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full py-2 pr-2 pl-4 text-sm whitespace-nowrap text-zinc-100">
+          <Countdown ms={REQUEST_TIMEOUT_MS} />
+          <span>Waiting for them to answer…</span>
           <button
             onClick={cancelRequest}
-            className="rounded-full bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
+            className="min-h-9 rounded-full bg-white/10 px-4 text-xs font-medium transition hover:bg-white/20"
           >
             Cancel
           </button>
@@ -361,9 +365,9 @@ export default function Home() {
 
       {conn.kind === "incoming" && (
         <ConnectionPrompt
-          title="A stranger wants to connect"
-          acceptLabel="Accept"
-          declineLabel="Decline"
+          title="Someone wants to talk"
+          subtitle="A stranger tapped your dot."
+          countdownMs={REQUEST_TIMEOUT_MS}
           onAccept={acceptIncoming}
           onDecline={declineIncoming}
         />
@@ -384,8 +388,8 @@ export default function Home() {
       )}
 
       {video === "requesting" && (
-        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          Waiting for stranger to accept video…
+        <div className="glass animate-slide-down absolute top-[max(1rem,env(safe-area-inset-top))] left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-2 text-sm whitespace-nowrap text-zinc-100 md:left-[calc(50%-216px)]">
+          Waiting for them to turn on video…
         </div>
       )}
 
@@ -393,8 +397,6 @@ export default function Home() {
         <ConnectionPrompt
           title="Start video call?"
           subtitle="The stranger wants to turn on video."
-          acceptLabel="Accept"
-          declineLabel="Decline"
           onAccept={acceptVideo}
           onDecline={declineVideo}
         />

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Pulse",
   description: "A living globe of anonymous strangers. Tap a dot, start talking.",
+};
+
+// Edge-to-edge on notched phones (panels pad with safe-area insets) and a
+// browser chrome that matches the night globe.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#03050a",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({

@@ -59,9 +59,9 @@ DB, then confirmed with two headless Chrome sessions with mocked geolocation.
 
 ## Not a bug, but worth knowing
 
-- The map opens zoomed in on you (zoom 4). Peers thousands of km away (e.g.
-  Tokyo vs. the Philippines in DevTools Sensors) are on the map, just
-  off-screen. Zoom out, or check the "N online" counter.
+- The map used to open zoomed in on you (zoom 4), so peers thousands of km
+  away (e.g. Tokyo vs. the Philippines in DevTools Sensors) were on the map but
+  off-screen. Phase 2 now starts on the whole globe and flies in to zoom 3.
 
 ## Known limits (not fixed)
 
@@ -69,3 +69,105 @@ DB, then confirmed with two headless Chrome sessions with mocked geolocation.
   reaped, and won't reappear until it's reloaded (the heartbeat only updates an
   existing row).
 - STUN only, no TURN (out of scope per the README).
+
+# Phase 2 — Make it good
+
+**Direction:** the tagline is "a living globe of anonymous strangers," so the
+globe is the hero and everything else floats over it. Dark only, one green
+accent, frosted-glass panels, and motion that means something (a heartbeat
+means "someone is here"). No new dependencies: Mapbox, Tailwind v4 and plain
+CSS cover it.
+
+## What changed
+
+1. **Visual foundation** — `app/globals.css`
+   - Fixed a quiet bug: `body { font-family: Arial }` overrode the Geist font
+     the layout already loads.
+   - Dark only: removed the unused light-mode variables. The night globe *is*
+     the brand.
+   - Added a `glass` utility (blur, thin border, soft shadow) shared by every
+     floating surface: notices, prompts and the online counter.
+
+2. **The globe is the first thing you see** — `WorldMap.tsx`, `EntryGate.tsx`,
+   `page.tsx`
+   - Globe projection with atmosphere and stars instead of a flat map.
+   - The map renders from the first paint, and the entry screen sits *over* a
+     slowly spinning globe instead of on a blank page. On "Enter Pulse" the
+     camera flies down to you, so the first five seconds tell the whole story.
+   - Starting from the whole world also makes distant peers discoverable (see
+     the Phase 1 note above).
+   - The spin stops as soon as the user grabs the map and is off for
+     `prefers-reduced-motion`; Mapbox also skips the fly-in animation there.
+
+3. **Dots that feel alive** — `WorldMap.tsx`, `globals.css`
+   - One accent colour for everyone instead of random hues, which read as
+     noise. Each dot has a heartbeat ripple with a random delay, so the globe
+     shimmers instead of blinking in unison.
+   - Dots pop in when someone joins, and show a "Say hi" label on hover or
+     keyboard focus.
+   - Busy users turn grey, stop pulsing and read "In a chat", so it's clear
+     *before* clicking that they can't connect.
+   - Your own position is a white "YOU" beacon instead of a 📍 emoji, so it's
+     distinct from the people you can tap.
+   - Accessibility: Mapbox overwrites marker elements with `role="img"` and
+     "Map marker"; restored `role="button"` and real labels. Ripples are off
+     under reduced motion.
+   - Moved the online counter to the top-left with a live indicator; it had
+     been covered by the Mapbox logo. It's hidden on the entry screen, where
+     "0 online" would be misleading.
+
+4. **Connecting feels like an event** — `ConnectionPrompt.tsx`, `Countdown.tsx`,
+   `WorldMap.tsx`, `page.tsx`
+   - The 30 s request timeout already existed but was invisible. It's now a
+     draining ring on *both* sides, so the requester knows how long to wait
+     and the recipient knows how long they have.
+   - Incoming requests (and video requests) arrive as a slide-in card instead
+     of a full-screen modal; the globe stays usable. Accept is focused, Esc
+     declines.
+   - The linked peer's dot pulses faster, a glowing line joins the two dots,
+     and the camera frames both ends once. "You're talking to someone in Cebu"
+     is the moment the product is about, so it gets the motion.
+
+5. **Chat** — `ChatPanel.tsx`
+   - A floating glass card on desktop and a bottom sheet on mobile, instead of
+     a full-height slab, so the globe and the connection line stay in view.
+   - Header with a gradient avatar and live status ("Opening a private line…" →
+     "Connected · peer-to-peer").
+   - Empty state with three tap-to-send icebreakers: the hardest part of talking
+     to a stranger is the first message.
+   - Bubbles rise in; the input auto-focuses on connect; 44 px controls.
+
+6. **Video** — `VideoPanel.tsx`
+   - On desktop the call sits beside the chat instead of covering it, so you
+     can keep texting. Full screen on mobile.
+   - Mute and camera-off buttons. They toggle `track.enabled`, so there's no
+     renegotiation, and they're exposed with `aria-pressed`.
+   - Mirrored self view, and a "Waiting for their camera…" state: over HTTP
+     polling the remote video takes ~5–7 s to arrive.
+
+7. **Mobile and accessibility** — `layout.tsx`, `globals.css`, all panels
+   - `viewport-fit=cover`, dark `color-scheme` and a theme colour matching the
+     globe; top- and bottom-pinned UI respects safe-area insets (notch, home
+     bar).
+   - Map dots get a 44 px hit area on touch screens without looking bigger.
+   - Screen readers: notices are `role="status"`, chat is `role="log"` with
+     `aria-live`, prompts are `alertdialog`s, icon buttons have labels.
+   - All motion (spin, ripples, slide-ins) is off under
+     `prefers-reduced-motion`.
+
+**Verified:** typecheck, lint and `next build` pass. Screenshots on desktop
+(1280×800) and mobile (390×844) of every state: entry, live map, hover,
+requesting, incoming, connected, chat, video. Two-user headless Chrome runs of
+the full flow (request → accept → chat both ways → video with fake camera →
+tab close → "Stranger disconnected") pass on both viewport sizes.
+
+## Deliberately skipped
+
+- Animation library (e.g. framer-motion): CSS covers it, so no new dependency.
+- Usernames, avatars or profiles: they contradict the anonymous premise.
+- Light mode or a theme toggle, dot clustering, sounds, an onboarding tour.
+- Typing indicator: needs a new data-channel message type; low value.
+- Fade-out when a dot leaves: it still disappears instantly.
+- Great-circle arcs: the connection line is straight in map space, and a link
+  across the Pacific date line frames the long way round (marked `shortcut:`
+  in `WorldMap.tsx`).

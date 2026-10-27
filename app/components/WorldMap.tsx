@@ -2,35 +2,33 @@
 
 import { useEffect, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
-import type { Map as MapboxMap, Marker } from "mapbox-gl";
+import type { GeoJSONSource, Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-
-function dotColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  }
-  return `hsl(${Math.abs(hash) % 360}, 70%, 60%)`;
-}
 
 export default function WorldMap({
   peers,
   me,
   onPeerClick,
   canConnect,
+  linkedPeerId,
 }: {
   peers: PeerDot[];
   me: { lat: number; lng: number } | null;
   onPeerClick: (id: string) => void;
   canConnect: boolean;
+  // Peer we are requesting, being requested by, or talking to.
+  linkedPeerId: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const meMarkerRef = useRef<Marker | null>(null);
   const [ready, setReady] = useState(false);
+  // The idle globe drifts until the user grabs it or we fly to them.
+  const spinRef = useRef(true);
+  const framedRef = useRef<string | null>(null);
 
   // Marker click handlers are bound once, so read the live click handler +
   // connectability through refs (synced in an effect, never during render).
@@ -54,13 +52,37 @@ export default function WorldMap({
       const map = new mapboxgl.Map({
         container: containerRef.current,
         style: "mapbox://styles/mapbox/dark-v11",
-        // Open centered on the user if we know where they are, else world view.
-        center: me ? [me.lng, me.lat] : [0, 20],
-        zoom: me ? 4 : 1.4,
+        projection: "globe",
+        center: [100, 15],
+        zoom: 1.6,
         attributionControl: true,
       });
+      map.on("style.load", () => {
+        map.setFog({
+          color: "rgb(14, 22, 40)",
+          "high-color": "rgb(36, 92, 120)",
+          "horizon-blend": 0.06,
+          "space-color": "rgb(3, 5, 10)",
+          "star-intensity": 0.5,
+        });
+      });
+
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const spin = () => {
+        if (!spinRef.current || reduceMotion) return;
+        const c = map.getCenter();
+        map.easeTo({ center: [c.lng - 6, c.lat], duration: 1000, easing: (t) => t });
+      };
+      map.on("moveend", spin);
+      const stopSpin = () => (spinRef.current = false);
+      map.on("mousedown", stopSpin);
+      map.on("touchstart", stopSpin);
+      map.on("wheel", stopSpin);
+
       map.on("load", () => {
-        if (!cancelled) setReady(true);
+        if (cancelled) return;
+        setReady(true);
+        spin();
       });
       mapRef.current = map;
     })();
@@ -75,8 +97,6 @@ export default function WorldMap({
       mapRef.current = null;
       setReady(false);
     };
-    // `me` is only read for the initial center; we don't want to re-init on change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Show / move the user's own "you are here" pin.
@@ -91,12 +111,14 @@ export default function WorldMap({
       if (!meMarkerRef.current) {
         const el = document.createElement("div");
         el.className = "pulse-me";
-        el.title = "You are here";
-        el.innerHTML = `<span class="pulse-me-label">Me</span>📍`;
-        // anchor "bottom" → the pin's tip sits on the exact coordinate.
-        meMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+        el.innerHTML = `<span class="pulse-me-label">You</span>`;
+        meMarkerRef.current = new mapboxgl.Marker({ element: el })
           .setLngLat([me.lng, me.lat])
           .addTo(map);
+        spinRef.current = false;
+        // Zoom 3 keeps neighbouring countries in view. Mapbox skips the
+        // animation for prefers-reduced-motion users.
+        map.flyTo({ center: [me.lng, me.lat], zoom: 3, duration: 4000 });
       } else {
         meMarkerRef.current.setLngLat([me.lng, me.lat]);
       }
@@ -125,8 +147,8 @@ export default function WorldMap({
         if (!marker) {
           const el = document.createElement("button");
           el.className = "pulse-dot";
-          el.style.background = dotColor(peer.id);
-          el.title = "Tap to connect";
+          el.innerHTML = `<span class="pulse-core"></span>`;
+          el.style.setProperty("--d", `${(Math.random() * 2.4).toFixed(2)}s`);
           el.addEventListener("click", (e) => {
             e.stopPropagation();
             if (canConnectRef.current) onPeerClickRef.current(peer.id);
@@ -134,9 +156,18 @@ export default function WorldMap({
           marker = new mapboxgl.Marker({ element: el })
             .setLngLat([peer.lng, peer.lat])
             .addTo(map);
+          // Mapbox overwrites these with role="img" / "Map marker".
+          el.setAttribute("role", "button");
           markers.set(peer.id, marker);
         }
-        marker.getElement().style.opacity = peer.busy ? "0.35" : "1";
+        const el = marker.getElement();
+        const active = peer.id === linkedPeerId;
+        el.toggleAttribute("data-active", active);
+        el.toggleAttribute("data-busy", peer.busy && !active);
+        el.setAttribute(
+          "aria-label",
+          peer.busy ? "Stranger, already in a chat" : "Connect with a stranger",
+        );
       }
 
       // Drop markers for peers that went offline / got filtered out.
@@ -151,11 +182,79 @@ export default function WorldMap({
     return () => {
       cancelled = true;
     };
-  }, [peers, ready]);
+  }, [peers, ready, linkedPeerId]);
+
+  // Glowing line between you and the peer you're linked with.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const peer = peers.find((p) => p.id === linkedPeerId);
+    const data = {
+      type: "FeatureCollection" as const,
+      features:
+        me && peer
+          ? [
+              {
+                type: "Feature" as const,
+                properties: {},
+                geometry: {
+                  type: "LineString" as const,
+                  coordinates: [
+                    [me.lng, me.lat],
+                    [peer.lng, peer.lat],
+                  ],
+                },
+              },
+            ]
+          : [],
+    };
+    // Frame both ends once per link, leaving room for the chat panel/sheet.
+    // shortcut: a link across the antimeridian frames the long way round
+    // (zooms out too far), fine until users span the Pacific date line.
+    if (me && peer && framedRef.current !== peer.id) {
+      framedRef.current = peer.id;
+      const desktop = window.innerWidth >= 768;
+      map.fitBounds(
+        [
+          [Math.min(me.lng, peer.lng), Math.min(me.lat, peer.lat)],
+          [Math.max(me.lng, peer.lng), Math.max(me.lat, peer.lat)],
+        ],
+        {
+          padding: desktop
+            ? { top: 120, bottom: 120, left: 120, right: 520 }
+            : { top: 120, bottom: window.innerHeight * 0.6, left: 60, right: 60 },
+          maxZoom: 7,
+          duration: 2000,
+        },
+      );
+    }
+    if (!peer) framedRef.current = null;
+
+    const source = map.getSource("link") as GeoJSONSource | undefined;
+    if (source) {
+      source.setData(data);
+      return;
+    }
+    map.addSource("link", { type: "geojson", data });
+    map.addLayer({
+      id: "link-glow",
+      type: "line",
+      source: "link",
+      layout: { "line-cap": "round" },
+      paint: { "line-color": "#34d399", "line-width": 10, "line-blur": 8, "line-opacity": 0.6 },
+    });
+    map.addLayer({
+      id: "link-core",
+      type: "line",
+      source: "link",
+      layout: { "line-cap": "round" },
+      paint: { "line-color": "#d1fae5", "line-width": 2, "line-dasharray": [2, 1.5] },
+    });
+  }, [me, peers, linkedPeerId, ready]);
 
   return (
     <div className="absolute inset-0">
-      <div ref={containerRef} className="h-full w-full bg-zinc-900" />
+      <div ref={containerRef} className="h-full w-full bg-[#03050a]" />
 
       {!TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
@@ -167,10 +266,16 @@ export default function WorldMap({
         </div>
       )}
 
-      {/* Online count */}
-      <div className="absolute bottom-4 left-4 rounded-full bg-zinc-900/80 px-3 py-1.5 text-xs text-zinc-300 backdrop-blur">
-        {peers.length} online
-      </div>
+      {/* Online count — only once we're on the map ourselves. */}
+      {me && (
+        <div className="glass absolute top-[max(1rem,env(safe-area-inset-top))] left-4 flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-zinc-200">
+          <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgb(52_211_153)]" />
+          <span>
+            <span className="font-semibold tabular-nums text-white">{peers.length}</span>{" "}
+            online
+          </span>
+        </div>
+      )}
     </div>
   );
 }
