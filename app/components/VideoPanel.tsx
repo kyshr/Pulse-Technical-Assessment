@@ -60,7 +60,7 @@ export default function VideoPanel({
         autoPlay
         playsInline
         muted
-        className={`absolute top-4 right-4 aspect-[3/4] w-28 -scale-x-100 rounded-2xl border border-white/15 bg-zinc-900 object-cover shadow-xl md:w-36 ${camOn ? "" : "opacity-0"}`}
+        className={`absolute top-[max(1rem,env(safe-area-inset-top))] right-4 aspect-[3/4] w-28 -scale-x-100 rounded-2xl border border-white/15 bg-zinc-900 object-cover shadow-xl md:w-36 ${camOn ? "" : "opacity-0"}`}
       />
 
       <div className="glass absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full p-2">

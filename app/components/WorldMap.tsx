@@ -268,7 +268,7 @@ export default function WorldMap({
 
       {/* Online count — only once we're on the map ourselves. */}
       {me && (
-        <div className="glass absolute top-4 left-4 flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-zinc-200">
+        <div className="glass absolute top-[max(1rem,env(safe-area-inset-top))] left-4 flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-zinc-200">
           <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgb(52_211_153)]" />
           <span>
             <span className="font-semibold tabular-nums text-white">{peers.length}</span>{" "}

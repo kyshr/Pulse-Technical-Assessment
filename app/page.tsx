@@ -351,7 +351,7 @@ export default function Home() {
       </div>
 
       {conn.kind === "requesting" && (
-        <div className="glass animate-slide-down absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full py-2 pr-2 pl-4 text-sm whitespace-nowrap text-zinc-100">
+        <div className="glass animate-slide-down absolute top-[max(1rem,env(safe-area-inset-top))] left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full py-2 pr-2 pl-4 text-sm whitespace-nowrap text-zinc-100">
           <Countdown ms={REQUEST_TIMEOUT_MS} />
           <span>Waiting for them to answer…</span>
           <button
@@ -388,7 +388,7 @@ export default function Home() {
       )}
 
       {video === "requesting" && (
-        <div className="glass animate-slide-down absolute top-4 left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-2 text-sm whitespace-nowrap text-zinc-100 md:left-[calc(50%-216px)]">
+        <div className="glass animate-slide-down absolute top-[max(1rem,env(safe-area-inset-top))] left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-2 text-sm whitespace-nowrap text-zinc-100 md:left-[calc(50%-216px)]">
           Waiting for them to turn on video…
         </div>
       )}

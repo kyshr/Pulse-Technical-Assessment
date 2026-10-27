@@ -124,6 +124,17 @@ body {
   border-radius: 9999px;
 }
 
+/* Fingers need a 44px target; the visible dot stays the same size. */
+@media (pointer: coarse) {
+  .pulse-dot {
+    width: 44px;
+    height: 44px;
+  }
+  .pulse-dot::before {
+    inset: 16px;
+  }
+}
+
 /* The peer you're requesting / talking to: faster, brighter ripple. */
 .pulse-dot[data-active]::before {
   border-color: #a7f3d0;
