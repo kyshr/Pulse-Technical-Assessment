@@ -388,8 +388,8 @@ export default function Home() {
       )}
 
       {video === "requesting" && (
-        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 glass rounded-full px-4 py-2 text-sm text-zinc-100">
-          Waiting for stranger to accept video…
+        <div className="glass animate-slide-down absolute top-4 left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-2 text-sm whitespace-nowrap text-zinc-100 md:left-[calc(50%-216px)]">
+          Waiting for them to turn on video…
         </div>
       )}
 
