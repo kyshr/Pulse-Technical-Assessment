@@ -168,7 +168,7 @@ export default function WorldMap({
       )}
 
       {/* Online count */}
-      <div className="absolute bottom-4 left-4 rounded-full bg-zinc-900/80 px-3 py-1.5 text-xs text-zinc-300 backdrop-blur">
+      <div className="absolute bottom-4 left-4 glass rounded-full px-3 py-1.5 text-xs text-zinc-300">
         {peers.length} online
       </div>
     </div>
