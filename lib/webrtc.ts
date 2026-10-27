@@ -107,8 +107,9 @@ export class PeerSession {
     this.ignoreOffer = !this.polite && offerCollision;
     if (this.ignoreOffer) return;
 
-    await this.flushPendingCandidates();
     await this.pc.setRemoteDescription(desc);
+    // Candidates can only be added once a remote description exists.
+    await this.flushPendingCandidates();
     if (desc.type === "offer") {
       await this.pc.setLocalDescription();
       if (this.pc.localDescription) {
@@ -129,7 +130,7 @@ export class PeerSession {
   }
 
   sendChat(text: string) {
-    this.safeSend({ t: "msg", text });
+    this.safeSend({ t: "chat", text });
   }
 
   sendControl(ctrl: PeerControl) {

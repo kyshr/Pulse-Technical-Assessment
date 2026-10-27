@@ -83,6 +83,7 @@ export default function Home() {
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
         if (state === "failed") {
+          void sendSignal(sessionId, peerId, "end"); // frees busy server-side
           teardown("Connection failed (network).");
         }
       },
@@ -224,6 +225,9 @@ export default function Home() {
           if (requestTimer.current) clearTimeout(requestTimer.current);
           startPeer(sig.fromId, true);
           setConn({ kind: "connecting", peerId: sig.fromId });
+        } else {
+          // We cancelled/timed out before this arrived; release the accepter.
+          void sendSignal(sessionId, sig.fromId, "end");
         }
         break;
       }
@@ -265,9 +269,21 @@ export default function Home() {
     }
   }
 
+  // Partner closed the tab (leave deletes its row + signals, so no "end" ever
+  // arrives) or went stale: end our side and free our busy flag.
+  function checkPeerGone(online: PeerDot[]) {
+    const c = connRef.current;
+    if (c.kind !== "idle" && !online.some((p) => p.id === c.peerId)) {
+      void sendSignal(sessionId, c.peerId, "end");
+      teardown("Stranger disconnected.");
+    }
+  }
+
   const processSignalRef = useRef(processSignal);
+  const checkPeerGoneRef = useRef(checkPeerGone);
   useEffect(() => {
     processSignalRef.current = processSignal;
+    checkPeerGoneRef.current = checkPeerGone;
   });
 
   useEffect(() => {
@@ -281,6 +297,7 @@ export default function Home() {
         if (!active) return;
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
+        checkPeerGoneRef.current(data.peers);
       } catch {}
       if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
     };
