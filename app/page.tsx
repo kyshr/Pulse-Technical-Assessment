@@ -225,6 +225,9 @@ export default function Home() {
           if (requestTimer.current) clearTimeout(requestTimer.current);
           startPeer(sig.fromId, true);
           setConn({ kind: "connecting", peerId: sig.fromId });
+        } else {
+          // We cancelled/timed out before this arrived; release the accepter.
+          void sendSignal(sessionId, sig.fromId, "end");
         }
         break;
       }
