@@ -31,6 +31,8 @@ export default function WorldMap({
   const markersRef = useRef<Map<string, Marker>>(new Map());
   const meMarkerRef = useRef<Marker | null>(null);
   const [ready, setReady] = useState(false);
+  // The idle globe drifts until the user grabs it or we fly to them.
+  const spinRef = useRef(true);
 
   // Marker click handlers are bound once, so read the live click handler +
   // connectability through refs (synced in an effect, never during render).
@@ -54,13 +56,37 @@ export default function WorldMap({
       const map = new mapboxgl.Map({
         container: containerRef.current,
         style: "mapbox://styles/mapbox/dark-v11",
-        // Open centered on the user if we know where they are, else world view.
-        center: me ? [me.lng, me.lat] : [0, 20],
-        zoom: me ? 4 : 1.4,
+        projection: "globe",
+        center: [100, 15],
+        zoom: 1.6,
         attributionControl: true,
       });
+      map.on("style.load", () => {
+        map.setFog({
+          color: "rgb(14, 22, 40)",
+          "high-color": "rgb(36, 92, 120)",
+          "horizon-blend": 0.06,
+          "space-color": "rgb(3, 5, 10)",
+          "star-intensity": 0.5,
+        });
+      });
+
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const spin = () => {
+        if (!spinRef.current || reduceMotion) return;
+        const c = map.getCenter();
+        map.easeTo({ center: [c.lng - 6, c.lat], duration: 1000, easing: (t) => t });
+      };
+      map.on("moveend", spin);
+      const stopSpin = () => (spinRef.current = false);
+      map.on("mousedown", stopSpin);
+      map.on("touchstart", stopSpin);
+      map.on("wheel", stopSpin);
+
       map.on("load", () => {
-        if (!cancelled) setReady(true);
+        if (cancelled) return;
+        setReady(true);
+        spin();
       });
       mapRef.current = map;
     })();
@@ -75,8 +101,6 @@ export default function WorldMap({
       mapRef.current = null;
       setReady(false);
     };
-    // `me` is only read for the initial center; we don't want to re-init on change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Show / move the user's own "you are here" pin.
@@ -97,6 +121,10 @@ export default function WorldMap({
         meMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: "bottom" })
           .setLngLat([me.lng, me.lat])
           .addTo(map);
+        spinRef.current = false;
+        // Zoom 3 keeps neighbouring countries in view. Mapbox skips the
+        // animation for prefers-reduced-motion users.
+        map.flyTo({ center: [me.lng, me.lat], zoom: 3, duration: 4000 });
       } else {
         meMarkerRef.current.setLngLat([me.lng, me.lat]);
       }
@@ -155,7 +183,7 @@ export default function WorldMap({
 
   return (
     <div className="absolute inset-0">
-      <div ref={containerRef} className="h-full w-full bg-zinc-900" />
+      <div ref={containerRef} className="h-full w-full bg-[#03050a]" />
 
       {!TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
@@ -167,10 +195,12 @@ export default function WorldMap({
         </div>
       )}
 
-      {/* Online count */}
-      <div className="absolute bottom-4 left-4 glass rounded-full px-3 py-1.5 text-xs text-zinc-300">
-        {peers.length} online
-      </div>
+      {/* Online count — only once we're on the map ourselves. */}
+      {me && (
+        <div className="absolute bottom-4 left-4 glass rounded-full px-3 py-1.5 text-xs text-zinc-300">
+          {peers.length} online
+        </div>
+      )}
     </div>
   );
 }

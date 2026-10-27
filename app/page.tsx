@@ -321,13 +321,10 @@ export default function Home() {
   }, [sessionId, phase]);
 
   async function handleReady(lat: number, lng: number) {
-    setMyLocation({ lat, lng });
     await join(sessionId, lat, lng);
+    // Set together so the gate closes as the globe starts flying to the user.
+    setMyLocation({ lat, lng });
     setPhase("live");
-  }
-
-  if (phase === "gate") {
-    return <EntryGate onReady={handleReady} />;
   }
 
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
@@ -340,6 +337,8 @@ export default function Home() {
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
       />
+
+      {phase === "gate" && <EntryGate onReady={handleReady} />}
 
       {notice && (
         <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 glass rounded-full px-4 py-2 text-sm text-zinc-100">
