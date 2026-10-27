@@ -7,14 +7,6 @@ import type { PeerDot } from "@/lib/types";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-function dotColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  }
-  return `hsl(${Math.abs(hash) % 360}, 70%, 60%)`;
-}
-
 export default function WorldMap({
   peers,
   me,
@@ -115,10 +107,8 @@ export default function WorldMap({
       if (!meMarkerRef.current) {
         const el = document.createElement("div");
         el.className = "pulse-me";
-        el.title = "You are here";
-        el.innerHTML = `<span class="pulse-me-label">Me</span>📍`;
-        // anchor "bottom" → the pin's tip sits on the exact coordinate.
-        meMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+        el.innerHTML = `<span class="pulse-me-label">You</span>`;
+        meMarkerRef.current = new mapboxgl.Marker({ element: el })
           .setLngLat([me.lng, me.lat])
           .addTo(map);
         spinRef.current = false;
@@ -153,8 +143,8 @@ export default function WorldMap({
         if (!marker) {
           const el = document.createElement("button");
           el.className = "pulse-dot";
-          el.style.background = dotColor(peer.id);
-          el.title = "Tap to connect";
+          el.innerHTML = `<span class="pulse-core"></span>`;
+          el.style.setProperty("--d", `${(Math.random() * 2.4).toFixed(2)}s`);
           el.addEventListener("click", (e) => {
             e.stopPropagation();
             if (canConnectRef.current) onPeerClickRef.current(peer.id);
@@ -162,9 +152,16 @@ export default function WorldMap({
           marker = new mapboxgl.Marker({ element: el })
             .setLngLat([peer.lng, peer.lat])
             .addTo(map);
+          // Mapbox overwrites these with role="img" / "Map marker".
+          el.setAttribute("role", "button");
           markers.set(peer.id, marker);
         }
-        marker.getElement().style.opacity = peer.busy ? "0.35" : "1";
+        const el = marker.getElement();
+        el.toggleAttribute("data-busy", peer.busy);
+        el.setAttribute(
+          "aria-label",
+          peer.busy ? "Stranger, already in a chat" : "Connect with a stranger",
+        );
       }
 
       // Drop markers for peers that went offline / got filtered out.
@@ -197,8 +194,12 @@ export default function WorldMap({
 
       {/* Online count — only once we're on the map ourselves. */}
       {me && (
-        <div className="absolute bottom-4 left-4 glass rounded-full px-3 py-1.5 text-xs text-zinc-300">
-          {peers.length} online
+        <div className="glass absolute top-4 left-4 flex items-center gap-2 rounded-full px-3.5 py-2 text-sm text-zinc-200">
+          <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgb(52_211_153)]" />
+          <span>
+            <span className="font-semibold tabular-nums text-white">{peers.length}</span>{" "}
+            online
+          </span>
         </div>
       )}
     </div>
