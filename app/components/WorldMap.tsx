@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
-import type { Map as MapboxMap, Marker } from "mapbox-gl";
+import type { GeoJSONSource, Map as MapboxMap, Marker } from "mapbox-gl";
 import type { PeerDot } from "@/lib/types";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -12,11 +12,14 @@ export default function WorldMap({
   me,
   onPeerClick,
   canConnect,
+  linkedPeerId,
 }: {
   peers: PeerDot[];
   me: { lat: number; lng: number } | null;
   onPeerClick: (id: string) => void;
   canConnect: boolean;
+  // Peer we are requesting, being requested by, or talking to.
+  linkedPeerId: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
@@ -25,6 +28,7 @@ export default function WorldMap({
   const [ready, setReady] = useState(false);
   // The idle globe drifts until the user grabs it or we fly to them.
   const spinRef = useRef(true);
+  const framedRef = useRef<string | null>(null);
 
   // Marker click handlers are bound once, so read the live click handler +
   // connectability through refs (synced in an effect, never during render).
@@ -157,7 +161,9 @@ export default function WorldMap({
           markers.set(peer.id, marker);
         }
         const el = marker.getElement();
-        el.toggleAttribute("data-busy", peer.busy);
+        const active = peer.id === linkedPeerId;
+        el.toggleAttribute("data-active", active);
+        el.toggleAttribute("data-busy", peer.busy && !active);
         el.setAttribute(
           "aria-label",
           peer.busy ? "Stranger, already in a chat" : "Connect with a stranger",
@@ -176,7 +182,75 @@ export default function WorldMap({
     return () => {
       cancelled = true;
     };
-  }, [peers, ready]);
+  }, [peers, ready, linkedPeerId]);
+
+  // Glowing line between you and the peer you're linked with.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const peer = peers.find((p) => p.id === linkedPeerId);
+    const data = {
+      type: "FeatureCollection" as const,
+      features:
+        me && peer
+          ? [
+              {
+                type: "Feature" as const,
+                properties: {},
+                geometry: {
+                  type: "LineString" as const,
+                  coordinates: [
+                    [me.lng, me.lat],
+                    [peer.lng, peer.lat],
+                  ],
+                },
+              },
+            ]
+          : [],
+    };
+    // Frame both ends once per link, leaving room for the chat panel/sheet.
+    // shortcut: a link across the antimeridian frames the long way round
+    // (zooms out too far), fine until users span the Pacific date line.
+    if (me && peer && framedRef.current !== peer.id) {
+      framedRef.current = peer.id;
+      const desktop = window.innerWidth >= 768;
+      map.fitBounds(
+        [
+          [Math.min(me.lng, peer.lng), Math.min(me.lat, peer.lat)],
+          [Math.max(me.lng, peer.lng), Math.max(me.lat, peer.lat)],
+        ],
+        {
+          padding: desktop
+            ? { top: 120, bottom: 120, left: 120, right: 520 }
+            : { top: 120, bottom: window.innerHeight * 0.6, left: 60, right: 60 },
+          maxZoom: 7,
+          duration: 2000,
+        },
+      );
+    }
+    if (!peer) framedRef.current = null;
+
+    const source = map.getSource("link") as GeoJSONSource | undefined;
+    if (source) {
+      source.setData(data);
+      return;
+    }
+    map.addSource("link", { type: "geojson", data });
+    map.addLayer({
+      id: "link-glow",
+      type: "line",
+      source: "link",
+      layout: { "line-cap": "round" },
+      paint: { "line-color": "#34d399", "line-width": 10, "line-blur": 8, "line-opacity": 0.6 },
+    });
+    map.addLayer({
+      id: "link-core",
+      type: "line",
+      source: "link",
+      layout: { "line-cap": "round" },
+      paint: { "line-color": "#d1fae5", "line-width": 2, "line-dasharray": [2, 1.5] },
+    });
+  }, [me, peers, linkedPeerId, ready]);
 
   return (
     <div className="absolute inset-0">

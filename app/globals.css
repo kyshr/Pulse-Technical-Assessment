@@ -3,6 +3,35 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --animate-slide-down: slide-down 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-rise: rise 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+
+  @keyframes slide-down {
+    from {
+      transform: translateY(-24px);
+      opacity: 0;
+    }
+  }
+  @keyframes rise {
+    from {
+      transform: translateY(12px);
+      opacity: 0;
+    }
+  }
+}
+
+@keyframes countdown {
+  to {
+    stroke-dashoffset: 100;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-down,
+  .animate-rise {
+    animation: none;
+  }
 }
 
 /* Dark only: the night globe is the brand. */
@@ -93,6 +122,16 @@ body {
   outline: 2px solid #6ee7b7;
   outline-offset: -4px;
   border-radius: 9999px;
+}
+
+/* The peer you're requesting / talking to: faster, brighter ripple. */
+.pulse-dot[data-active]::before {
+  border-color: #a7f3d0;
+  animation-duration: 1.2s;
+  animation-delay: 0s;
+}
+.pulse-dot[data-active]::after {
+  content: none;
 }
 
 /* Busy: grey, still, and labelled as such. */

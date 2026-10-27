@@ -1,41 +1,62 @@
 "use client";
 
-// Reusable centered prompt for "someone wants to connect" and
-// "someone wants to start video".
+import { useEffect } from "react";
+import Countdown from "./Countdown";
+
+// Slide-in card for "someone wants to connect" and "someone wants to start
+// video". Non-blocking: the globe stays usable behind it.
 export default function ConnectionPrompt({
   title,
   subtitle,
-  acceptLabel,
-  declineLabel,
+  countdownMs,
   onAccept,
   onDecline,
 }: {
   title: string;
   subtitle?: string;
-  acceptLabel: string;
-  declineLabel: string;
+  countdownMs?: number;
   onAccept: () => void;
   onDecline: () => void;
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onDecline();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onDecline]);
+
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-6">
-      <div className="w-full max-w-xs glass rounded-3xl p-6 text-center text-zinc-100">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-zinc-400">{subtitle}</p>}
-        <div className="mt-5 flex gap-3">
-          <button
-            onClick={onDecline}
-            className="flex-1 rounded-full border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:border-zinc-500"
-          >
-            {declineLabel}
-          </button>
-          <button
-            onClick={onAccept}
-            className="flex-1 rounded-full bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-300"
-          >
-            {acceptLabel}
-          </button>
+    <div
+      role="alertdialog"
+      aria-labelledby="prompt-title"
+      className="glass animate-slide-down absolute top-4 left-1/2 z-40 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-3xl p-5 text-zinc-100"
+    >
+      <div className="flex items-start gap-3">
+        <span className="relative mt-1 flex size-3 shrink-0" aria-hidden>
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75 motion-reduce:animate-none" />
+          <span className="relative inline-flex size-3 rounded-full bg-emerald-400" />
+        </span>
+        <div className="flex-1">
+          <h2 id="prompt-title" className="font-semibold">
+            {title}
+          </h2>
+          {subtitle && <p className="mt-0.5 text-sm text-zinc-400">{subtitle}</p>}
         </div>
+        {countdownMs && <Countdown ms={countdownMs} />}
+      </div>
+      <div className="mt-4 flex gap-2">
+        <button
+          onClick={onDecline}
+          className="min-h-11 flex-1 rounded-full border border-white/10 text-sm font-medium text-zinc-300 transition hover:bg-white/5"
+        >
+          Decline
+        </button>
+        <button
+          autoFocus
+          onClick={onAccept}
+          className="min-h-11 flex-1 rounded-full bg-emerald-400 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+        >
+          Accept
+        </button>
       </div>
     </div>
   );
