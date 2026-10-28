@@ -7,6 +7,11 @@ import type { PollResponse } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const REAP_SAMPLE_RATE = 0.2;
+// shortcut: no viewport filtering, so past 500 online users some dots are
+// missing; upgrade to a bounding-box query when that's a real problem.
+const MAX_PEERS = 500;
+
 // GET /api/poll — Authorization: Bearer <secret>. The single endpoint that
 // drives the live map. It (1) heartbeats the caller, (2) reaps stale presence
 // + orphan signals, (3) returns the filtered online peers, and (4) drains this
@@ -27,26 +32,35 @@ export async function GET(request: NextRequest) {
     data: { lastSeen: new Date(now) },
   });
 
-  // 2) Reap stale presence rows and orphaned signals (independent deletes —
-  // no atomicity needed, and avoids transactions over a PgBouncer pooler).
-  await prisma.presence.deleteMany({ where: { lastSeen: { lt: staleCutoff } } });
-  await prisma.signal.deleteMany({ where: { createdAt: { lt: signalCutoff } } });
-
-  // 3) Online peers, excluding self.
-  const peers = await prisma.presence.findMany({
-    where: {
-      id: { not: id },
-      lastSeen: { gte: staleCutoff },
-    },
-    select: { id: true, lat: true, lng: true, busy: true },
-  });
-
-  // 4) Drain this user's mailbox: read, then delete exactly what we read so a
-  // concurrently-inserted signal is never lost.
-  const inbox = await prisma.signal.findMany({
-    where: { toId: id },
-    orderBy: { createdAt: "asc" },
-  });
+  // 2–4 are independent, so run them in parallel (each poll used to make five
+  // sequential round trips to the database).
+  const [, peers, inbox] = await Promise.all([
+    // 2) Reap stale presence rows and orphaned signals. Peers are already
+    // filtered by lastSeen below, so this is only cleanup: sample it instead
+    // of running two table-wide deletes on every poll from every user.
+    Math.random() < REAP_SAMPLE_RATE
+      ? Promise.all([
+          prisma.presence.deleteMany({ where: { lastSeen: { lt: staleCutoff } } }),
+          prisma.signal.deleteMany({ where: { createdAt: { lt: signalCutoff } } }),
+        ])
+      : null,
+    // 3) Online peers, excluding self. Capped so one response can't grow
+    // without bound.
+    prisma.presence.findMany({
+      where: {
+        id: { not: id },
+        lastSeen: { gte: staleCutoff },
+      },
+      select: { id: true, lat: true, lng: true, busy: true },
+      take: MAX_PEERS,
+    }),
+    // 4) Drain this user's mailbox: read, then delete exactly what we read so
+    // a concurrently-inserted signal is never lost.
+    prisma.signal.findMany({
+      where: { toId: id },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
   if (inbox.length > 0) {
     await prisma.signal.deleteMany({
       where: { id: { in: inbox.map((s) => s.id) } },
