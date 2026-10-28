@@ -84,24 +84,29 @@ export async function POST(request: NextRequest) {
   switch (signalType) {
     case "request": {
       if (me.busy) return forbidden();
-      // Request spam / harassment: one request per cooldown window.
-      if (
-        me.lastRequestAt &&
-        Date.now() - me.lastRequestAt.getTime() < REQUEST_COOLDOWN_MS
-      ) {
-        return tooMany();
-      }
-      await prisma.presence.update({
-        where: { id: fromId },
-        data: { partnerId: toId, lastRequestAt: new Date() },
-      });
       // One active connection at a time: auto-decline if the target is
       // offline or busy instead of delivering the request.
       const target = await prisma.presence.findUnique({
         where: { id: toId },
         select: { busy: true },
       });
-      if (!target || target.busy) {
+      const free = !!target && !target.busy;
+      // Request spam / harassment: one request per cooldown window. Check and
+      // write in one statement so parallel requests can't all pass. Only a
+      // delivered request links us, so nobody can accept a declined one.
+      const now = Date.now();
+      const allowed = await prisma.presence.updateMany({
+        where: {
+          id: fromId,
+          OR: [
+            { lastRequestAt: null },
+            { lastRequestAt: { lt: new Date(now - REQUEST_COOLDOWN_MS) } },
+          ],
+        },
+        data: { lastRequestAt: new Date(now), partnerId: free ? toId : null },
+      });
+      if (allowed.count === 0) return tooMany();
+      if (!free) {
         await sendDecline(toId, fromId);
         return Response.json({ ok: true, autoDeclined: true });
       }
