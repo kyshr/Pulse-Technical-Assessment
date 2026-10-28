@@ -32,6 +32,9 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  // Strangers hidden this session: off the map, requests silently ignored.
+  // Session-only by nature, since everyone's id changes on every visit.
+  const [hidden, setHidden] = useState<string[]>([]);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(
     null,
   );
@@ -181,6 +184,14 @@ export default function Home() {
     teardown();
   }
 
+  function hideStranger() {
+    const c = connRef.current;
+    if (c.kind === "idle") return;
+    setHidden((prev) => [...prev, c.peerId]);
+    void sendSignal(secret, c.peerId, "end");
+    teardown("Stranger hidden for this session.");
+  }
+
   function startVideoRequest() {
     if (videoRef.current !== "none" || !peerRef.current) return;
     setVideo("requesting");
@@ -220,7 +231,7 @@ export default function Home() {
   function processSignal(sig: SignalMsg) {
     switch (sig.type) {
       case "request": {
-        if (connRef.current.kind === "idle") {
+        if (connRef.current.kind === "idle" && !hidden.includes(sig.fromId)) {
           setConn({ kind: "incoming", peerId: sig.fromId });
         } else {
           void sendSignal(secret, sig.fromId, "decline");
@@ -340,7 +351,7 @@ export default function Home() {
   return (
     <main className="fixed inset-0 overflow-hidden">
       <WorldMap
-        peers={peers}
+        peers={peers.filter((p) => !hidden.includes(p.id))}
         me={myLocation}
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
@@ -391,6 +402,7 @@ export default function Home() {
           }}
           onStartVideo={startVideoRequest}
           onEnd={endConnection}
+          onHide={hideStranger}
         />
       )}
 
@@ -414,6 +426,7 @@ export default function Home() {
           localStream={localStream}
           remoteStream={remoteStream}
           onEnd={endVideo}
+          onHide={hideStranger}
         />
       )}
     </main>
