@@ -58,9 +58,15 @@ export async function POST(request: NextRequest) {
   const [me, pending] = await Promise.all([
     prisma.presence.findUnique({
       where: { id: fromId },
-      select: { busy: true, partnerId: true, lastRequestAt: true },
+      select: { busy: true, partnerId: true },
     }),
-    prisma.signal.count({ where: { fromId } }),
+    // Only WebRTC messages can flood; counting all types would let strangers
+    // fill a user's quota with auto-declines sent in that user's name.
+    webrtc
+      ? prisma.signal.count({
+          where: { fromId, type: { in: ["offer", "answer", "ice"] } },
+        })
+      : 0,
   ]);
   if (!me) {
     return Response.json({ error: "unknown session" }, { status: 403 });
