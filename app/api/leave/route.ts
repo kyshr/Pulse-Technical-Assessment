@@ -1,22 +1,25 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { publicId } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/leave — body { id }. Removes the presence row and any pending
+// POST /api/leave — body { secret }. Removes the presence row and any pending
 // signals to/from this user. Called via navigator.sendBeacon on tab close, so
 // the body may arrive as text — parse defensively.
 export async function POST(request: NextRequest) {
-  let id: string | undefined;
+  let secret: unknown;
   try {
     const text = await request.text();
-    id = text ? (JSON.parse(text)?.id as string | undefined) : undefined;
+    secret = text ? JSON.parse(text)?.secret : undefined;
   } catch {
-    id = undefined;
+    secret = undefined;
   }
 
-  if (typeof id !== "string" || !id) {
+  // sendBeacon can't set headers, so the secret travels in the body.
+  const id = publicId(secret);
+  if (!id) {
     return Response.json({ error: "invalid id" }, { status: 400 });
   }
 

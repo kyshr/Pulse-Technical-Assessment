@@ -25,7 +25,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
-  const [sessionId] = useState(() => crypto.randomUUID());
+  // Private to this tab; other users only ever see sha256(secret).
+  const [secret] = useState(() => crypto.randomUUID());
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,14 +78,14 @@ export default function Home() {
   function startPeer(peerId: string, initiator: boolean) {
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
-        void sendSignal(sessionId, peerId, type, payload);
+        void sendSignal(secret, peerId, type, payload);
       },
       onChat: (text) => addMessage(false, text),
       onControl: (ctrl) => handleControl(ctrl),
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
         if (state === "failed") {
-          void sendSignal(sessionId, peerId, "end"); // frees busy server-side
+          void sendSignal(secret, peerId, "end"); // frees busy server-side
           teardown("Connection failed (network).");
         }
       },
@@ -133,13 +134,13 @@ export default function Home() {
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return;
     setConn({ kind: "requesting", peerId });
-    void sendSignal(sessionId, peerId, "request");
+    void sendSignal(secret, peerId, "request");
     requestTimer.current = setTimeout(() => {
       if (
         connRef.current.kind === "requesting" &&
         connRef.current.peerId === peerId
       ) {
-        void sendSignal(sessionId, peerId, "end");
+        void sendSignal(secret, peerId, "end");
         teardown("No answer.");
       }
     }, REQUEST_TIMEOUT_MS);
@@ -147,7 +148,7 @@ export default function Home() {
 
   function cancelRequest() {
     if (connRef.current.kind === "requesting") {
-      void sendSignal(sessionId, connRef.current.peerId, "end");
+      void sendSignal(secret, connRef.current.peerId, "end");
     }
     teardown();
   }
@@ -156,20 +157,20 @@ export default function Home() {
     if (connRef.current.kind !== "incoming") return;
     const peerId = connRef.current.peerId;
     startPeer(peerId, false);
-    void sendSignal(sessionId, peerId, "accept");
+    void sendSignal(secret, peerId, "accept");
     setConn({ kind: "connecting", peerId });
   }
 
   function declineIncoming() {
     if (connRef.current.kind !== "incoming") return;
-    void sendSignal(sessionId, connRef.current.peerId, "decline");
+    void sendSignal(secret, connRef.current.peerId, "decline");
     setConn({ kind: "idle" });
   }
 
   function endConnection() {
     const c = connRef.current;
     if (c.kind === "connecting" || c.kind === "connected") {
-      void sendSignal(sessionId, c.peerId, "end");
+      void sendSignal(secret, c.peerId, "end");
     }
     teardown();
   }
@@ -216,7 +217,7 @@ export default function Home() {
         if (connRef.current.kind === "idle") {
           setConn({ kind: "incoming", peerId: sig.fromId });
         } else {
-          void sendSignal(sessionId, sig.fromId, "decline");
+          void sendSignal(secret, sig.fromId, "decline");
         }
         break;
       }
@@ -228,7 +229,7 @@ export default function Home() {
           setConn({ kind: "connecting", peerId: sig.fromId });
         } else {
           // We cancelled/timed out before this arrived; release the accepter.
-          void sendSignal(sessionId, sig.fromId, "end");
+          void sendSignal(secret, sig.fromId, "end");
         }
         break;
       }
@@ -275,7 +276,7 @@ export default function Home() {
   function checkPeerGone(online: PeerDot[]) {
     const c = connRef.current;
     if (c.kind !== "idle" && !online.some((p) => p.id === c.peerId)) {
-      void sendSignal(sessionId, c.peerId, "end");
+      void sendSignal(secret, c.peerId, "end");
       teardown("Stranger disconnected.");
     }
   }
@@ -288,13 +289,13 @@ export default function Home() {
   });
 
   useEffect(() => {
-    if (phase !== "live" || !sessionId) return;
+    if (phase !== "live" || !secret) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
       try {
-        const data = await poll(sessionId);
+        const data = await poll(secret);
         if (!active) return;
         setPeers(data.peers);
         for (const s of data.signals) processSignalRef.current(s);
@@ -308,21 +309,21 @@ export default function Home() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [phase, sessionId]);
+  }, [phase, secret]);
 
   useEffect(() => {
-    if (!sessionId || phase !== "live") return;
-    const onLeave = () => leave(sessionId);
+    if (!secret || phase !== "live") return;
+    const onLeave = () => leave(secret);
     window.addEventListener("pagehide", onLeave);
     window.addEventListener("beforeunload", onLeave);
     return () => {
       window.removeEventListener("pagehide", onLeave);
       window.removeEventListener("beforeunload", onLeave);
     };
-  }, [sessionId, phase]);
+  }, [secret, phase]);
 
   async function handleReady(lat: number, lng: number) {
-    await join(sessionId, lat, lng);
+    await join(secret, lat, lng);
     // Set together so the gate closes as the globe starts flying to the user.
     setMyLocation({ lat, lng });
     setPhase("live");
