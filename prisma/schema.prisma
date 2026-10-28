@@ -16,6 +16,9 @@ model Presence {
   lat      Float // ALREADY privacy-offset coords (raw is never stored)
   lng      Float
   busy     Boolean  @default(false) // true while in an active connection
+  // Who we requested (busy=false) or are connected to (busy=true). Lets
+  // /api/signal reject accepts, WebRTC messages and hang-ups between strangers.
+  partnerId String?
   lastSeen DateTime
 
   @@index([lastSeen])

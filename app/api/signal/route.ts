@@ -54,37 +54,77 @@ export async function POST(request: NextRequest) {
   const signalType = type as SignalType;
   const payloadStr = typeof payload === "string" ? payload : null;
 
-  // Enforce "one active connection at a time": if the target is already busy,
-  // auto-decline the request instead of delivering it.
-  if (signalType === "request") {
-    const target = await prisma.presence.findUnique({
-      where: { id: toId },
-      select: { busy: true },
-    });
-    if (!target) {
-      // Target went offline — tell the initiator it was declined.
-      await sendDecline(toId, fromId);
-      return Response.json({ ok: true, autoDeclined: true });
-    }
-    if (target.busy) {
-      await sendDecline(toId, fromId);
-      return Response.json({ ok: true, autoDeclined: true });
-    }
+  const me = await prisma.presence.findUnique({
+    where: { id: fromId },
+    select: { busy: true, partnerId: true },
+  });
+  if (!me) {
+    return Response.json({ error: "unknown session" }, { status: 403 });
   }
+  const forbidden = () =>
+    Response.json({ error: "not allowed" }, { status: 403 });
 
-  // Busy transitions:
-  // - accept: the connection is now active → mark BOTH peers busy.
-  // - decline/end: free both peers.
-  if (signalType === "accept") {
-    await prisma.presence.updateMany({
-      where: { id: { in: [fromId, toId] } },
-      data: { busy: true },
-    });
-  } else if (signalType === "decline" || signalType === "end") {
-    await prisma.presence.updateMany({
-      where: { id: { in: [fromId, toId] } },
-      data: { busy: false },
-    });
+  // Connection state machine. partnerId = who you requested (busy=false) or
+  // are connected to (busy=true); each signal is only valid for its state.
+  switch (signalType) {
+    case "request": {
+      if (me.busy) return forbidden();
+      // One active connection at a time: auto-decline if the target is
+      // offline or busy instead of delivering the request.
+      const target = await prisma.presence.findUnique({
+        where: { id: toId },
+        select: { busy: true },
+      });
+      if (!target || target.busy) {
+        await sendDecline(toId, fromId);
+        return Response.json({ ok: true, autoDeclined: true });
+      }
+      await prisma.presence.update({
+        where: { id: fromId },
+        data: { partnerId: toId },
+      });
+      break;
+    }
+    case "accept": {
+      // Only the user who was requested can accept, while both are free.
+      if (me.busy) return forbidden();
+      const linked = await prisma.presence.updateMany({
+        where: { id: toId, partnerId: fromId, busy: false },
+        data: { busy: true },
+      });
+      if (linked.count === 0) return forbidden();
+      await prisma.presence.update({
+        where: { id: fromId },
+        data: { busy: true, partnerId: toId },
+      });
+      break;
+    }
+    case "decline": {
+      // Only against a pending request to us.
+      const cleared = await prisma.presence.updateMany({
+        where: { id: toId, partnerId: fromId, busy: false },
+        data: { partnerId: null },
+      });
+      if (cleared.count === 0) return forbidden();
+      break;
+    }
+    case "end": {
+      // Either side of a pending or active link can end it; frees both.
+      const cleared = await prisma.presence.updateMany({
+        where: {
+          OR: [
+            { id: fromId, partnerId: toId },
+            { id: toId, partnerId: fromId },
+          ],
+        },
+        data: { partnerId: null, busy: false },
+      });
+      if (cleared.count === 0) return forbidden();
+      break;
+    }
+    default:
+      // offer / answer / ice: only between connected partners.
+      if (!me.busy || me.partnerId !== toId) return forbidden();
   }
 
   await prisma.signal.create({
