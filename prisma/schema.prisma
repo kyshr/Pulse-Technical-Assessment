@@ -19,6 +19,7 @@ model Presence {
   // Who we requested (busy=false) or are connected to (busy=true). Lets
   // /api/signal reject accepts, WebRTC messages and hang-ups between strangers.
   partnerId String?
+  lastRequestAt DateTime? // request cooldown (anti-spam)
   lastSeen DateTime
 
   @@index([lastSeen])

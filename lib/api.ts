@@ -28,8 +28,8 @@ export async function sendSignal(
   toId: string,
   type: SignalType,
   payload?: string,
-): Promise<void> {
-  await fetch("/api/signal", {
+): Promise<boolean> {
+  const res = await fetch("/api/signal", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -37,6 +37,7 @@ export async function sendSignal(
     },
     body: JSON.stringify({ toId, type, payload }),
   });
+  return res.ok;
 }
 
 // Fire-and-forget leave that survives the tab closing.

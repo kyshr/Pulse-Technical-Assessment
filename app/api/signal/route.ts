@@ -17,6 +17,8 @@ const VALID_TYPES: SignalType[] = [
 ];
 
 const MAX_PAYLOAD = 64 * 1024; // SDP/ICE are small; cap to be safe.
+const MAX_PENDING_SIGNALS = 100;
+const REQUEST_COOLDOWN_MS = 3_000;
 
 // POST /api/signal — Authorization: Bearer <secret>; body { toId, type, payload? }
 // Drops one message into the recipient's mailbox. Also manages the `busy`
@@ -54,21 +56,40 @@ export async function POST(request: NextRequest) {
   const signalType = type as SignalType;
   const payloadStr = typeof payload === "string" ? payload : null;
 
-  const me = await prisma.presence.findUnique({
-    where: { id: fromId },
-    select: { busy: true, partnerId: true },
-  });
+  const [me, pending] = await Promise.all([
+    prisma.presence.findUnique({
+      where: { id: fromId },
+      select: { busy: true, partnerId: true, lastRequestAt: true },
+    }),
+    prisma.signal.count({ where: { fromId } }),
+  ]);
   if (!me) {
     return Response.json({ error: "unknown session" }, { status: 403 });
   }
   const forbidden = () =>
     Response.json({ error: "not allowed" }, { status: 403 });
+  const tooMany = () =>
+    Response.json({ error: "slow down" }, { status: 429 });
+
+  // Mailbox flooding: a real call needs a few dozen undelivered signals at most.
+  if (pending >= MAX_PENDING_SIGNALS) return tooMany();
 
   // Connection state machine. partnerId = who you requested (busy=false) or
   // are connected to (busy=true); each signal is only valid for its state.
   switch (signalType) {
     case "request": {
       if (me.busy) return forbidden();
+      // Request spam / harassment: one request per cooldown window.
+      if (
+        me.lastRequestAt &&
+        Date.now() - me.lastRequestAt.getTime() < REQUEST_COOLDOWN_MS
+      ) {
+        return tooMany();
+      }
+      await prisma.presence.update({
+        where: { id: fromId },
+        data: { partnerId: toId, lastRequestAt: new Date() },
+      });
       // One active connection at a time: auto-decline if the target is
       // offline or busy instead of delivering the request.
       const target = await prisma.presence.findUnique({
@@ -79,10 +100,6 @@ export async function POST(request: NextRequest) {
         await sendDecline(toId, fromId);
         return Response.json({ ok: true, autoDeclined: true });
       }
-      await prisma.presence.update({
-        where: { id: fromId },
-        data: { partnerId: toId },
-      });
       break;
     }
     case "accept": {

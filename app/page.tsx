@@ -134,7 +134,13 @@ export default function Home() {
   function requestConnection(peerId: string) {
     if (connRef.current.kind !== "idle") return;
     setConn({ kind: "requesting", peerId });
-    void sendSignal(secret, peerId, "request");
+    void sendSignal(secret, peerId, "request").then((ok) => {
+      // Rate-limited (or rejected): don't leave the user waiting 30 s.
+      const c = connRef.current;
+      if (!ok && c.kind === "requesting" && c.peerId === peerId) {
+        teardown("Too fast — try again in a moment.");
+      }
+    });
     requestTimer.current = setTimeout(() => {
       if (
         connRef.current.kind === "requesting" &&
