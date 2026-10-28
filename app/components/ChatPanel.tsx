@@ -21,6 +21,7 @@ export default function ChatPanel({
   onSend,
   onStartVideo,
   onEnd,
+  onHide,
 }: {
   messages: ChatMessage[];
   connected: boolean;
@@ -28,6 +29,7 @@ export default function ChatPanel({
   onSend: (text: string) => void;
   onStartVideo: () => void;
   onEnd: () => void;
+  onHide: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,17 @@ export default function ChatPanel({
           <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="m16 13 5 3V8l-5 3" />
             <rect x="2" y="6" width="14" height="12" rx="2" />
+          </svg>
+        </button>
+        <button
+          onClick={onHide}
+          aria-label="Leave and hide this stranger"
+          title="Leave and hide this stranger"
+          className="grid size-11 place-items-center rounded-full bg-white/5 transition hover:bg-white/10"
+        >
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+            <path d="m9 9 6 6M15 9l-6 6" />
           </svg>
         </button>
         <button
