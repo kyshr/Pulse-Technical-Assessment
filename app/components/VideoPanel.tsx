@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { isExplicit, loadSafetyModel } from "@/lib/safety";
+
+const SCAN_INTERVAL_MS = 1000;
 
 export default function VideoPanel({
   localStream,
@@ -21,6 +24,8 @@ export default function VideoPanel({
   // so a restarted video is blurred again.
   const [revealedStream, setRevealedStream] = useState<MediaStream | null>(null);
   const revealed = remoteStream !== null && revealedStream === remoteStream;
+  const [flaggedStream, setFlaggedStream] = useState<MediaStream | null>(null);
+  const flagged = remoteStream !== null && flaggedStream === remoteStream;
 
   useEffect(() => {
     if (localRef.current && localRef.current.srcObject !== localStream) {
@@ -32,6 +37,32 @@ export default function VideoPanel({
     if (remoteRef.current && remoteRef.current.srcObject !== remoteStream) {
       remoteRef.current.srcObject = remoteStream;
     }
+  }, [remoteStream]);
+
+  // Scan their video on-device once a second, revealed or not; anything that
+  // looks explicit is blurred again. CSS blur doesn't affect the pixels read.
+  useEffect(() => {
+    if (!remoteStream) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const scan = async () => {
+      try {
+        const model = await loadSafetyModel();
+        const video = remoteRef.current;
+        if (video && video.readyState >= 2 && isExplicit(await model.classify(video)) && !stopped) {
+          setRevealedStream(null);
+          setFlaggedStream(remoteStream);
+        }
+      } catch {
+        // Model or frame unavailable: manual blur still protects; retry.
+      }
+      if (!stopped) timer = setTimeout(scan, SCAN_INTERVAL_MS);
+    };
+    void scan();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [remoteStream]);
 
   // Disabling a track sends silence / black frames without renegotiating.
@@ -68,9 +99,13 @@ export default function VideoPanel({
       {remoteStream && !revealed && (
         <div className="absolute inset-0 grid place-items-center p-6">
           <div className="glass max-w-xs rounded-3xl p-5 text-center text-zinc-100">
-            <p className="font-semibold">Their video is blurred</p>
+            <p className="font-semibold">
+              {flagged ? "Blurred automatically" : "Their video is blurred"}
+            </p>
             <p className="mt-1 text-sm text-zinc-400">
-              You decide when to see a stranger. You can hear them already.
+              {flagged
+                ? "This may be explicit. Checked on your device; nothing was sent anywhere."
+                : "You decide when to see a stranger. You can hear them already."}
             </p>
             <div className="mt-4 flex justify-center gap-2">
               <button
