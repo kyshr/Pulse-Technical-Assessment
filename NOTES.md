@@ -171,3 +171,72 @@ tab close → "Stranger disconnected") pass on both viewport sizes.
 - Great-circle arcs: the connection line is straight in map space, and a link
   across the Pacific date line frames the long way round (marked `shortcut:`
   in `WorldMap.tsx`).
+
+# Phase 3 — Make it secure
+
+**Root cause:** every user's id is broadcast to everyone by `/api/poll`, and
+every endpoint trusted whatever id the caller sent. The id *was* the
+credential, so anyone with DevTools could act as anyone. Each issue below was
+reproduced with `curl` before the fix and re-tested after.
+
+## Issues, ranked, and what I did
+
+| # | Severity | Issue | Status |
+|---|----------|-------|--------|
+| 1 | Critical | **Impersonation.** With a victim's public id you could read and drain their mailbox (their SDP/ICE, i.e. their real IP, defeating the location offset), send signals as them, move their dot, or kick them off the map. | Fixed |
+| 2 | High | **Unauthorised signals.** Any user could send `accept` to two strangers and mark them busy (do it to everyone and every request auto-declines), end anyone's call, or push WebRTC offers to people they weren't connected to. | Fixed |
+| 3 | High | **No rate limits.** Request spam at one person, or flooding the Signal table with 64 KB payloads. | Fixed |
+| 4 | Medium | **Loose validation.** Any payload on any signal type; signals to yourself; the client threw on malformed peer payloads. | Fixed |
+| 5 | Medium | **No security headers.** No CSP, and the app could be framed (clickjacking). | Fixed |
+| 6 | Medium | **Unbounded poll cost.** 5 sequential DB round trips (~1.7 s), table-wide deletes on every poll, and every online user returned. | Fixed |
+| 7 | Medium | **Location averaging.** Each session gets a fresh random offset around the same true point, so many sessions average out to near the real location. | Accepted |
+| 8 | Low | **Your partner learns your IP.** Inherent to peer-to-peer WebRTC. | Documented |
+
+## Fixes
+
+1. **Session secrets** — `lib/session.ts`, all routes, `lib/api.ts`. Each tab
+   holds a random secret and its public id is `sha256(secret)`. The server
+   derives the caller from the secret (Bearer header; in the body for
+   join/leave, since `sendBeacon` can't set headers) and ignores any
+   client-sent id. No schema change needed.
+2. **Connection state on the server** — `Presence.partnerId`. `accept` and
+   `decline` only answer a real pending request; `offer`/`answer`/`ice` only
+   flow between connected partners; `end` only works on your own link.
+3. **Rate limits** — one request per 3 s per session (`Presence.lastRequestAt`),
+   checked and written atomically, and at most 100 undelivered
+   `offer`/`answer`/`ice` per sender. The client stops waiting
+   immediately if a request is rejected.
+4. **Validation** — `offer`/`answer`/`ice` must carry a JSON object within the
+   size cap; other types must carry nothing; recipient must be a valid id and
+   not yourself. The client ignores malformed payloads instead of throwing.
+5. **Headers** — `next.config.ts`: CSP (only Mapbox hosts, `blob:` workers),
+   `frame-ancestors 'none'`, `nosniff`, `no-referrer`, a `Permissions-Policy`
+   limiting camera/mic/location to this site, no `X-Powered-By`.
+6. **Poll** — independent queries in parallel, cleanup on ~20% of polls
+   (peers are already filtered by `lastSeen`), peer list capped at 500.
+
+## Not fixed, and why
+
+- **Location averaging (7):** the requirements ask for both a 1–3 km offset
+  and a *different* position every session. Together, those make averaging
+  possible in principle. Fixing it means relaxing one (e.g. snap to a grid
+  first, which breaks the strict 1–3 km). Needs a product decision.
+- **IP visible to your partner (8):** hiding it needs a TURN relay, which is
+  an external service (out of scope per the README).
+- **Per-IP limits / fake-dot flooding:** needs a shared store or storing IPs;
+  the first is an external service, the second conflicts with "no PII".
+
+**Verified:** `bash scripts/security-check.sh` (needs `npm run dev`) probes
+every fix: forged ids → 401, stranger accept/offer/end → 403, bad payloads →
+400, parallel requests → only one passes, accepting a declined request → 403,
+legitimate flow → 200. Full two-user browser flow (connect, chat, video,
+disconnect) passes on desktop and mobile. CSP checked in the browser with no
+violations. Typecheck, lint and `next build` pass.
+
+**Deploying:** run `npx prisma db push` (adds two nullable columns). Tabs
+still open on the old version will get 401s and need a reload.
+
+**Found while testing:** this PC's clock is ~65 s behind, and local dev
+shares the Neon database with the Vercel deployment. Vercel's cleanup deleted
+local users as "stale" within seconds. It's not a production bug, but a
+separate dev database (or Postgres `now()` for timestamps) would avoid it.
