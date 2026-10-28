@@ -85,7 +85,15 @@ export class PeerSession {
     };
   }
 
+  // The payload comes from the other peer via the server: never let a
+  // malformed one throw out of the poll loop.
   async handleSignal(type: DescType, payload: string) {
+    try {
+      await this.applySignal(type, payload);
+    } catch {}
+  }
+
+  private async applySignal(type: DescType, payload: string) {
     if (this.closed) return;
     const data = JSON.parse(payload);
 

@@ -45,11 +45,10 @@ export async function POST(request: NextRequest) {
   if (typeof type !== "string" || !VALID_TYPES.includes(type as SignalType)) {
     return Response.json({ error: "invalid type" }, { status: 400 });
   }
-  if (
-    payload !== undefined &&
-    payload !== null &&
-    (typeof payload !== "string" || payload.length > MAX_PAYLOAD)
-  ) {
+  // offer/answer/ice carry a JSON object (SDP or ICE candidate); the other
+  // types carry nothing, so they can't be used to smuggle data to a stranger.
+  const webrtc = type === "offer" || type === "answer" || type === "ice";
+  if (webrtc ? !isJsonObject(payload) : payload !== undefined && payload !== null) {
     return Response.json({ error: "invalid payload" }, { status: 400 });
   }
 
@@ -149,6 +148,16 @@ export async function POST(request: NextRequest) {
   });
 
   return Response.json({ ok: true });
+}
+
+function isJsonObject(payload: unknown): boolean {
+  if (typeof payload !== "string" || payload.length > MAX_PAYLOAD) return false;
+  try {
+    const v = JSON.parse(payload);
+    return typeof v === "object" && v !== null && !Array.isArray(v);
+  } catch {
+    return false;
+  }
 }
 
 // Helper: deliver an auto-decline from `target` back to `initiator`.
