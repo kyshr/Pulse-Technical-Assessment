@@ -203,7 +203,8 @@ reproduced with `curl` before the fix and re-tested after.
    `decline` only answer a real pending request; `offer`/`answer`/`ice` only
    flow between connected partners; `end` only works on your own link.
 3. **Rate limits** — one request per 3 s per session (`Presence.lastRequestAt`),
-   and at most 100 undelivered signals per sender. The client stops waiting
+   checked and written atomically, and at most 100 undelivered
+   `offer`/`answer`/`ice` per sender. The client stops waiting
    immediately if a request is rejected.
 4. **Validation** — `offer`/`answer`/`ice` must carry a JSON object within the
    size cap; other types must carry nothing; recipient must be a valid id and
@@ -225,9 +226,10 @@ reproduced with `curl` before the fix and re-tested after.
 - **Per-IP limits / fake-dot flooding:** needs a shared store or storing IPs;
   the first is an external service, the second conflicts with "no PII".
 
-**Verified:** `curl` probes for every fix (forged ids → 401, stranger
-accept/offer/end → 403, bad payloads → 400, second request within 3 s → 429,
-legitimate flow → 200). Full two-user browser flow (connect, chat, video,
+**Verified:** `bash scripts/security-check.sh` (needs `npm run dev`) probes
+every fix: forged ids → 401, stranger accept/offer/end → 403, bad payloads →
+400, parallel requests → only one passes, accepting a declined request → 403,
+legitimate flow → 200. Full two-user browser flow (connect, chat, video,
 disconnect) passes on desktop and mobile. CSP checked in the browser with no
 violations. Typecheck, lint and `next build` pass.
 
