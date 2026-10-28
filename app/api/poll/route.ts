@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 
 const REAP_SAMPLE_RATE = 0.2;
 // shortcut: no viewport filtering, so past 500 online users some dots are
-// missing; upgrade to a bounding-box query when that's a real problem.
+// missing and a partner left out reads as "disconnected" on the client;
+// upgrade to a bounding-box query (always including partnerId) before then.
 const MAX_PEERS = 500;
 
 // GET /api/poll — Authorization: Bearer <secret>. The single endpoint that
