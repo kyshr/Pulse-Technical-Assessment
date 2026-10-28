@@ -240,3 +240,62 @@ still open on the old version will get 401s and need a reload.
 shares the Neon database with the Vercel deployment. Vercel's cleanup deleted
 local users as "stale" within seconds. It's not a production bug, but a
 separate dev database (or Postgres `now()` for timestamps) would avoid it.
+
+# Phase 4 — Make it better: Safe Reveal
+
+**The idea.** The known way anonymous video chat fails is a stranger flashing
+explicit content the moment the camera opens. Pulse already promises "chat and
+video never touch the server", so the safety feature keeps that promise: it
+runs entirely in your browser.
+
+## What I built
+
+1. **Blur until revealed** — a stranger's video starts heavily blurred (audio
+   on). You tap **Reveal** when you're ready and can re-blur any time from the
+   video bar. Every new video stream starts blurred again.
+2. **Leave & hide** — one tap (chat header, video bar, or the blur card) ends
+   the call, removes that stranger's dot for the rest of the session and
+   silently ignores their requests. They just see "No answer", so hiding
+   can't provoke them.
+3. **On-device explicit-content check** — once a second the stranger's frame
+   is scored by `nsfwjs` (MobileNetV2 on TensorFlow.js). If Porn + Hentai
+   ≥ 0.7, the video blurs again and the card says "Blurred automatically …
+   checked on your device". No frame, score or request leaves the browser.
+
+## Why this design
+
+- **No new server surface.** All three run in the browser, so the Phase 3
+  work stays valid and there's nothing new to rate-limit or abuse.
+- **Defence in depth.** Blur-first protects even if the model misses or fails
+  to load; the model catches what appears *after* you reveal.
+- **Cost kept off the first load.** The model (~3.4 MB) and TensorFlow.js are
+  lazy-loaded only when a video starts. The first page load is unchanged.
+  It works under the production CSP without `unsafe-eval`.
+- **"Sexy" isn't flagged** (swimwear, shirtless): mostly false alarms.
+
+## Trade-offs and limits
+
+- The model is ~90% accurate. It can miss, and it can false-alarm. While a
+  frame stays flagged, it keeps re-blurring, so explicit video can't be
+  watched on Pulse even after a manual Reveal. That's a product choice for a
+  stranger app.
+- Hiding is per session only, because everyone's id changes on every visit.
+  Persistent blocking would need a stable identity, which Pulse avoids on
+  purpose.
+- Scanning once a second costs some CPU/GPU on low-end phones.
+
+**Verified:** Playwright with two browsers and fake cameras on desktop and
+mobile. Video starts blurred, Reveal unblurs, Leave & hide removes the dot,
+and the hidden stranger's next request never reaches you. The classifier runs
+on the production build under the strict CSP (scores logged: the fake
+camera's test pattern reads as Neutral/Drawing, Porn 0). A forced flag
+re-blurs it. I didn't test real explicit content.
+
+## Next, with more time
+
+- Report button: send only the *score*, never the frame, to auto-limit a
+  session that keeps getting flagged by different people.
+- Pause scanning while the tab is hidden; use the WebGPU backend where
+  available.
+- Distance and local time on the connection prompt ("2,340 km · evening
+  there") to make each match feel more real.
